@@ -7,7 +7,7 @@ class DataLoader:
     def get_train_data(batch_size):
         return torch.utils.data.DataLoader(
             datasets.MNIST(
-                '../data',
+                './data',
                 train=True,
                 download=True,
                 transform=transforms.Compose([

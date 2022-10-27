@@ -8,7 +8,7 @@ class DataLoader:
 
     def get_mnist(self):
         self.train_data = torchvision.datasets.MNIST(
-            root='../data',
+            root='./data',
             train=True,
             transform=torchvision.transforms.ToTensor(),
             download=True,
