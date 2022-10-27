@@ -1,81 +1,26 @@
-import torch
 import torch.nn as nn
-import torch.nn.functional as F
-import random
-from DataUtils.Common import seed_num
-
-torch.manual_seed(seed_num)
-random.seed(seed_num)
+import torch.nn.functional as f
+from models.CNN import CNN
 
 
 class CNN_LSTM(nn.Module):
-
-    def __init__(self, args):
+    def __init__(self):
         super(CNN_LSTM, self).__init__()
-        self.args = args
-        self.hidden_dim = args.lstm_hidden_dim
-        self.num_layers = args.lstm_num_layers
-        # V = args.embed_num
-        V = 300
-        D = args.embed_dim
-        # C = args.class_num
-        C = 2
-        Ci = 1
-        Co = args.kernel_num
-        Ks = args.kernel_sizes
-        self.C = C
-        self.embed = nn.Embedding(V, D, padding_idx=3)
-        # pretrained  embedding
-        if args.word_Embedding:
-            self.embed.weight.data.copy_(200)
-
-        # CNN
-        self.convs1 = [nn.Conv2d(Ci, Co, (K, D)) for K in Ks]
-        self.dropout = nn.Dropout(args.dropout)
-        # for cnn cuda
-        if self.args.cuda is True:
-            for conv in self.convs1:
-                conv = conv.cuda()
-
-        # LSTM
-        self.lstm = nn.LSTM(D, self.hidden_dim, dropout=args.dropout, num_layers=self.num_layers)
-
-        # linear
-        L = len(Ks) * Co + self.hidden_dim
-        self.hidden2label1 = nn.Linear(L, L // 2)
-        self.hidden2label2 = nn.Linear(L // 2, C)
+        self.cnn = CNN()
+        self.rnn = nn.LSTM(
+            input_size=1568,
+            hidden_size=64,
+            num_layers=1,
+            batch_first=True)
+        self.linear = nn.Linear(64, 10)
 
     def forward(self, x):
-        embed = self.embed(x)
-
-        # CNN
-        cnn_x = embed
-        cnn_x = torch.transpose(cnn_x, 0, 1)
-        cnn_x = cnn_x.unsqueeze(1)
-        cnn_x = [F.relu(conv(cnn_x)).squeeze(3) for conv in self.convs1]  # [(N,Co,W), ...]*len(Ks)
-        cnn_x = [F.max_pool1d(i, i.size(2)).squeeze(2) for i in cnn_x]  # [(N,Co), ...]*len(Ks)
-        cnn_x = torch.cat(cnn_x, 1)
-        cnn_x = self.dropout(cnn_x)
-
-        # LSTM
-        lstm_x = embed.view(len(x), embed.size(1), -1)
-        lstm_out, _ = self.lstm(lstm_x)
-        lstm_out = torch.transpose(lstm_out, 0, 1)
-        lstm_out = torch.transpose(lstm_out, 1, 2)
-        lstm_out = F.max_pool1d(lstm_out, lstm_out.size(2)).squeeze(2)
-
-        # CNN and LSTM cat
-        cnn_x = torch.transpose(cnn_x, 0, 1)
-        lstm_out = torch.transpose(lstm_out, 0, 1)
-        cnn_lstm_out = torch.cat((cnn_x, lstm_out), 0)
-        cnn_lstm_out = torch.transpose(cnn_lstm_out, 0, 1)
-
-        # linear
-        cnn_lstm_out = self.hidden2label1(F.tanh(cnn_lstm_out))
-        cnn_lstm_out = self.hidden2label2(F.tanh(cnn_lstm_out))
-
-        # output
-        logit = cnn_lstm_out
-        return logit
+        batch_size, time_steps, channels, height, width = x.size()
+        c_in = x.view(batch_size * time_steps, channels, height, width)
+        _, c_out = self.cnn(c_in)
+        r_in = c_out.view(batch_size, time_steps, -1)
+        r_out, (_, _) = self.rnn(r_in)
+        r_out2 = self.linear(r_out[:, -1, :])
+        return f.log_softmax(r_out2, dim=1)
 
 
